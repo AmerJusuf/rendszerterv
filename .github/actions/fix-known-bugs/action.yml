@@ -1,0 +1,23 @@
+name: 'Fix known bugs with EA'
+inputs:
+  model:
+    description: 'Model file (.qeax)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up sqlite3
+      run: |
+        sudo apt update && sudo apt install sqlite3 --yes --no-install-recommends 
+      shell: bash
+    - name: Fix UC include stereotype
+      run: |
+        SQL_QUERY="UPDATE t_stereotypes SET AppliesTo='Includes' WHERE Stereotype='include' AND AppliesTo='UCInclude';"
+        sqlite3 "${{ inputs.model }}" "$SQL_QUERY"
+      shell: bash
+    - name: Fix UC extend stereotype
+      run: |
+        SQL_QUERY="UPDATE t_stereotypes SET AppliesTo='Extends' WHERE Stereotype='extend' AND AppliesTo='UCExtend';"
+        sqlite3 "${{ inputs.model }}" "$SQL_QUERY"
+      shell: bash

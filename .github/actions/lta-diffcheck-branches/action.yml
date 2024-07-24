@@ -1,0 +1,120 @@
+name: 'Run diffcheck between three branches'
+inputs:
+  base:
+    description: 'Base branch (--base)'
+    required: true
+  theirs:
+    description: 'Their branch (--theirs)'
+    required: true
+  ours:
+    description: 'Our branch (--ours)'
+    required: true
+  lta:
+    description: "LemonTree.Automation path"
+    required: true
+  license:
+    description: "LemonTree.Automation license (base64-encoded)"
+    required: true
+  model:
+    description: "Model file path"
+    required: true
+  sfs_upload_endpoint:
+    description: "Endpoint to upload .sfsfiles to"
+    required: true
+  sfs_download_endpoint:
+    description: "Endpoint to upload .sfsfiles to"
+    required: true
+  token:
+    description: "Token for the sfs upload service"
+outputs:
+  LTA_OUTPUT:
+    description: 'Output of LTA'
+    value: "${{steps.lta.outputs.OUTPUT}}"
+  LTA_FILTERED_OUTPUT:
+    description: 'Output of LTA (filtered)'
+    value: "${{steps.lta-smart.outputs.OUTPUT}}"
+  SFS_DOWNLOAD_URL:
+    description: 'Download URL of the single session file'
+    value: "${{steps.sfs.outputs.sfsurl}}"
+
+runs:
+  using: "composite"
+  steps:
+    - run: |
+        echo base-model=$(mktemp --suffix .qeax) >> $GITHUB_OUTPUT
+        echo their-model=$(mktemp --suffix .qeax) >> $GITHUB_OUTPUT 
+        echo our-model=$(mktemp --suffix .qeax) >> $GITHUB_OUTPUT
+      shell: bash
+      id: file-generation
+
+    - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      with:
+        ref: ${{ inputs.base }}
+    - run: |
+        cp ${{ inputs.model }} "${{ steps.file-generation.outputs.base-model }}"
+        sha1sum "${{ steps.file-generation.outputs.base-model }}"
+      shell: bash
+
+    - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      with:
+        ref: ${{ inputs.theirs }}
+    - run: |
+        cp ${{ inputs.model }} "${{ steps.file-generation.outputs.their-model }}"
+        sha1sum "${{ steps.file-generation.outputs.their-model }}"
+      shell: bash
+
+    - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      with:
+        ref: ${{ inputs.ours }}
+    - run: |
+        cp ${{ inputs.model }} "${{ steps.file-generation.outputs.our-model }}"
+        sha1sum "${{ steps.file-generation.outputs.our-model }}"
+      shell: bash
+
+    - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+
+   
+    - run: echo "${{ inputs.license }}" | base64 -d > lta.lic
+      shell: bash
+
+    - name: Diff
+      shell: bash
+      id: lta
+      run: |
+        EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+        echo "OUTPUT<<$EOF" >> $GITHUB_OUTPUT
+        ${{ inputs.lta }} diff --base "${{ steps.file-generation.outputs.base-model }}" --theirs ${{ steps.file-generation.outputs.their-model }} --mine "${{ steps.file-generation.outputs.our-model }}" --sfs ".sfsfile" --DiffReportFilename DiffReport.xml >> $GITHUB_OUTPUT
+        echo 
+        echo "$EOF" >> $GITHUB_OUTPUT
+
+    - name: Handle diff
+      shell: bash {0}
+      id: lta-smart
+      run: |
+        EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+        echo "OUTPUT<<$EOF" >> $GITHUB_OUTPUT
+        IFS=$'\n' read -r -d '' -a lines <<< "${{ steps.lta.outputs.OUTPUT }}"
+        for line in "${lines[@]}"; do
+            if [[ $line == *"potentially different elements." ]]; then
+                # ignore
+                :
+            elif [[ $line == *" different elements." ]]; then
+                echo "$line"
+            elif [[ $line == "Found conflicts:"* ]]; then
+                if [[ $line != "Found conflicts: 0"* ]]; then
+                    echo "$line"
+                fi
+            fi
+        done >> $GITHUB_OUTPUT
+        echo "$EOF" >> $GITHUB_OUTPUT
+
+    - name: Deploy sfsfile
+      shell: bash
+      id: sfs
+      run: |
+        sudo apt update && sudo apt install uuid-runtime -y --no-install-recommends
+        uniqename=$(uuidgen)
+        cp .sfsfile $uniqename.sfsfile
+        curl -k -X POST -H "Authorization: ${{ inputs.token }}" -F "file=@$uniqename.sfsfile" ${{ inputs.sfs_upload_endpoint }}
+        echo sfsurl=${{ inputs.sfs_download_endpoint }}/$uniqename.sfsfile >> $GITHUB_OUTPUT
+

@@ -1,0 +1,20 @@
+name: 'Run LTA'
+description: 'Run LTA in docker'
+inputs:
+  command:
+    description: 'Command for LTA'
+    required: true
+    default: 'ConsistencyCheck'
+  args:
+    description: 'Arguments to the command'
+    required: false
+  license-file:
+    description: 'License file'
+    required: true
+    default: 'lta.lic'
+runs:
+  using: 'docker'
+  image: 'docker://nexus.lieberlieber.com:5000/lieberlieber/lemontree.automation:4.0.0-alpha.298'
+  args:
+    - "-c"
+    - cd /github/workspace && /app/LemonTree.Automation ${{ inputs.command }} ${{ inputs.args }} --License ${{ inputs.license-file }}

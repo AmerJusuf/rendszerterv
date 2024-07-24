@@ -1,0 +1,115 @@
+name: Manage PRs
+
+on:
+  pull_request_target:
+    types: 
+      - assigned
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - 'main'
+
+env:
+  ModelName: model.qeax
+
+jobs:
+  run-diffcheck:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+        with:
+          fetch-depth: 0
+      - name: Determine latest common ancestor
+        id: common
+        run: |
+          common=$(git merge-base ${{ github.event.pull_request.base.sha }}  ${{ github.event.pull_request.head.sha }})
+          echo "common=$common" >> $GITHUB_OUTPUT
+      - name: GetLTA
+        uses: ./.github/actions/download-lta
+        id: GetLTA
+      - uses: ./.github/actions/lta-diffcheck-branches
+        id: diffcheck
+        with:
+          base: ${{ steps.common.outputs.common }}
+          theirs: ${{ github.event.pull_request.base.ref }}
+          ours: ${{ github.event.pull_request.head.ref }}
+          lta: ${{ steps.GetLTA.outputs.LTA }}
+          license: ${{ secrets.LTA_LICENSE }}
+          model: ${{ env.ModelName }}
+          sfs_upload_endpoint: ${{ secrets.SFS_UPLOAD_ENDPOINT }}
+          sfs_download_endpoint: ${{ secrets.SFS_DOWNLOAD_ENDPOINT }}
+          token: ${{ secrets.SFS_UPLOAD_TOKEN }}
+      - uses: thollander/actions-comment-pull-request@dadb7667129e23f12ca3925c90dc5cd7121ab57e
+        with: 
+          comment_tag: 'diffcheck'
+          mode: 'recreate'
+          message: |
+            Diff report for ${{ env.ModelName }} (open this report on the [desktop](${{ steps.diffcheck.outputs.SFS_DOWNLOAD_URL }})/[web](${{ secrets.LT_URL }}?sessionAutoStart=true&sessionFromUrl=${{ steps.diffcheck.outputs.SFS_DOWNLOAD_URL }})):
+
+            ${{ steps.diffcheck.outputs.LTA_FILTERED_OUTPUT }}
+
+
+  run-model-check:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      - name: GetPipelineTools
+        uses: ./.github/actions/download-pipeline-tools
+        id: GetPipelineTools
+        with:
+          tool: ModelCheck
+      - name: ModelCheck
+        id: report
+        run: |
+          mkdir reports
+          ${{ steps.GetPipelineTools.outputs.TOOL_EXE }} --model "${{ env.ModelName }}" --out reports/README.md || true
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "README<<$EOF" >> $GITHUB_OUTPUT
+          cat reports/README.md >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+      - uses: thollander/actions-comment-pull-request@dadb7667129e23f12ca3925c90dc5cd7121ab57e
+        with: 
+          comment_tag: 'modelcheck'
+          mode: 'recreate'
+          message: |
+            <details>
+            <summary>ModelCheck results: </summary>
+
+            ``` xml
+            ${{ steps.report.outputs.README }}
+            ```
+
+            </details>
+
+            
+  run-consistency-check:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      - name: GetLTA
+        uses: ./.github/actions/download-lta
+        id: GetLTA
+      - run: echo "${{ secrets.LTA_LICENSE }}" | base64 -d > lta.lic
+      - name: EA known bug fixes
+        uses: ./.github/actions/fix-known-bugs
+        with:
+          model: model.qeax
+      - name: ConsistencyCheck
+        id: consistency
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "OUTPUT<<$EOF" >> $GITHUB_OUTPUT
+          ${{ steps.GetLTA.outputs.LTA }} ConsistencyCheck --Model ${{ env.ModelName }} >> $GITHUB_OUTPUT || true
+          echo "$EOF" >> $GITHUB_OUTPUT
+      - uses: thollander/actions-comment-pull-request@dadb7667129e23f12ca3925c90dc5cd7121ab57e
+        with: 
+          comment_tag: 'consistency'
+          mode: 'recreate'
+          message: |
+            Consistency Check output:
+            
+            ```
+            ${{ steps.consistency.outputs.OUTPUT }}
+            ```

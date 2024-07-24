@@ -1,0 +1,39 @@
+name: 'Download LTA'
+description: 'Download LTA from an url, and set the license'
+inputs:
+  url:
+    description: 'URL of LTA to download'
+    required: false
+    default: https://customers.lieberlieber.com/downloads/LemonTree/Automation/alpha/LemonTree.Automation.Linux.Zip_4.0.0-alpha0326.zip
+outputs:
+  LTA:
+    description: 'Path to the LTA executable'
+    value: "${{steps.version.outputs.LTA}}"
+
+runs:
+  using: "composite"
+  steps:
+    - run: |
+        sudo mkdir -p /opt/lta/
+        export nonroot=$(whoami)
+        echo $nonroot
+        sudo chown $nonroot:$nonroot /opt/lta -R
+        ls -la /opt/lta
+      shell: bash
+    - run: wget ${{ inputs.url }} -O /opt/lta/lta.zip
+      shell: bash
+    - run: unzip lta.zip
+      shell: bash
+      working-directory: /opt/lta
+    - run: chmod +x LemonTree.Automation
+      shell: bash
+      working-directory: /opt/lta
+    - run: |
+        version=$(./LemonTree.Automation | head -n2 | tail -n1)
+        echo $version is ready for use
+      shell: bash {0}
+      working-directory: /opt/lta
+    - run: |
+        echo LTA=/opt/lta/LemonTree.Automation >> $GITHUB_OUTPUT
+      shell: bash
+      id: version

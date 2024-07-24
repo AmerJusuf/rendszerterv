@@ -1,0 +1,27 @@
+name: lta-render
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  lta-render:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      - name: GetLTA
+        uses: ./.github/actions/download-lta
+        id: GetLTA
+      - run: echo "${{ secrets.LTA_LICENSE }}" | base64 -d > lta.lic
+      - name: Render
+        run: |
+          mkdir svg
+          ${{ steps.GetLTA.outputs.LTA }} SvgExport --Model "model.qeax" --FilenamePattern 1 --DiagramDirectory ./svg 
+      
+      - name: Deploy svgs
+        uses: JamesIves/github-pages-deploy-action@22a6ee251d6f13c6ab1ecb200d974f1a6feb1b8d # v4.4.2
+        with:
+          branch: renders
+          folder: svg
+          single-commit: true

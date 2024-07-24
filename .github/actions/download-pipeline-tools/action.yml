@@ -1,0 +1,57 @@
+name: 'Download Pipeline Tools'
+description: 'Download a Pipeline Tool from an url'
+inputs:
+  url:
+    description: 'Base URL of Pipeline Tool to download'
+    required: false
+    default: https://nexus.lieberlieber.com/repository/lemontree-pipeline-tools/LemonTree.Pipeline.Tools.
+  tool:
+    description: 'Name of Pipeline Tool to download'
+    required: true
+outputs:
+  TOOL_EXE:
+    description: 'Path to the executable'
+    value: "${{steps.version.outputs.TOOL_EXE}}"
+
+runs:
+  using: "composite"
+  steps:
+    # - name: Install WINE
+    #   run: |
+    #     sudo dpkg --add-architecture i386
+    #     sudo apt update
+    #     sudo apt install --no-install-recommends --yes wine wine32
+    #     sudo wget -P /mono http://dl.winehq.org/wine/wine-mono/5.0.0/wine-mono-5.0.0-x86.msi
+    #     wineboot -u && msiexec /i /mono/wine-mono-5.0.0-x86.msi || true
+    #     wine --version
+    #   shell: bash
+    - run: |
+        sudo mkdir -p /opt/pt/
+        export nonroot=$(whoami)
+        echo $nonroot
+        sudo chown $nonroot:$nonroot /opt/pt -R
+        ls -la /opt/pt
+      shell: bash
+    - run: |
+        wget ${{ inputs.url }}${{ inputs.tool }} -O /opt/pt/${{ inputs.tool }}
+        chmod +x /opt/pt/${{ inputs.tool }}
+      shell: bash
+    - run: |
+        tool=${{ inputs.tool }}
+        scriptname=${tool}.sh
+        echo "Preparing $scriptname"
+        echo "scriptname=$scriptname" >> $GITHUB_OUTPUT
+        printf '#!/bin/bash\nscriptdir=$(dirname $(realpath "$0"))\n$scriptdir/${{ inputs.tool }} $@\n' > $scriptname
+        chmod +x $scriptname
+      shell: bash
+      id: script-prepare
+      working-directory: /opt/pt
+    - run: |
+        version=$(./${{ steps.script-prepare.outputs.scriptname }} --version 2>&1)
+        echo $version is ready for use
+      shell: bash {0}
+      working-directory: /opt/pt
+    - run: |
+        echo TOOL_EXE=/opt/pt/${{ steps.script-prepare.outputs.scriptname }} >> $GITHUB_OUTPUT
+      shell: bash
+      id: version
